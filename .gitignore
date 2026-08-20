@@ -1,0 +1,31 @@
+.env
+*.env
+!.env.example
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Go
+worker/bin/
+bootstrap
+*.test
+
+# Build artifacts
+*.zip
+
+# Local tooling
+.aws-sam/
+data/
