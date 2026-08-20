@@ -1,0 +1,39 @@
+import config
+
+
+def test_defaults_to_us_east_1(monkeypatch):
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
+
+    current = config.settings()
+
+    assert current.region == "us-east-1"
+    assert current.endpoint_url is None
+
+
+def test_reads_endpoint_from_environment(monkeypatch):
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "http://localhost:4566")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-west-1")
+
+    current = config.settings()
+
+    assert current.region == "eu-west-1"
+    assert current.endpoint_url == "http://localhost:4566"
+
+
+def test_empty_endpoint_is_treated_as_unset(monkeypatch):
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "")
+
+    assert config.settings().endpoint_url is None
+
+
+def test_client_targets_configured_endpoint(monkeypatch):
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "http://localhost:4566")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
+
+    s3 = config.client("s3")
+
+    assert s3.meta.endpoint_url == "http://localhost:4566"
+    assert s3.meta.region_name == "us-east-1"
