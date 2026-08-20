@@ -1,0 +1,181 @@
+<h1 align="center">Parcel</h1>
+
+<p align="center">
+  <strong>Event-driven file processing on AWS, running entirely on your laptop.</strong><br />
+  No cloud account. No bill. Python orchestrates, Go processes, Terraform provisions.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white" alt="Go 1.27" />
+  <img src="https://img.shields.io/badge/Terraform-1.15-7B42BC?logo=terraform&logoColor=white" alt="Terraform 1.15" />
+  <img src="https://img.shields.io/badge/Docker-29.1-2496ED?logo=docker&logoColor=white" alt="Docker 29.1" />
+  <img src="https://img.shields.io/badge/Floci-1.7.0-4B9CD3?logo=icloud&logoColor=white" alt="Floci 1.7.0" />
+</p>
+
+<p align="center">
+  <img src="https://icon.icepanel.io/AWS/svg/Storage/Simple-Storage-Service.svg" height="42" alt="Amazon S3" title="Amazon S3" />
+  &nbsp;&nbsp;
+  <img src="https://icon.icepanel.io/AWS/svg/Compute/Lambda.svg" height="42" alt="AWS Lambda" title="AWS Lambda" />
+  &nbsp;&nbsp;
+  <img src="https://icon.icepanel.io/AWS/svg/Database/DynamoDB.svg" height="42" alt="Amazon DynamoDB" title="Amazon DynamoDB" />
+  &nbsp;&nbsp;
+  <img src="https://icon.icepanel.io/AWS/svg/App-Integration/Simple-Queue-Service.svg" height="42" alt="Amazon SQS" title="Amazon SQS" />
+  &nbsp;&nbsp;
+  <img src="https://icon.icepanel.io/AWS/svg/App-Integration/API-Gateway.svg" height="42" alt="Amazon API Gateway" title="Amazon API Gateway" />
+  &nbsp;&nbsp;
+  <img src="https://icon.icepanel.io/AWS/svg/Security-Identity-Compliance/Identity-and-Access-Management.svg" height="42" alt="AWS IAM" title="AWS IAM" />
+</p>
+
+<p align="center">
+  <sub>S3 · Lambda · DynamoDB · SQS · API Gateway · IAM</sub>
+</p>
+
+<p align="center">
+  <a href="#architecture">Architecture</a> ·
+  <a href="#why-two-languages">Why two languages</a> ·
+  <a href="#running-locally">Running locally</a> ·
+  <a href="#testing">Testing</a> ·
+  <a href="#floci-notes">Floci notes</a>
+</p>
+
+---
+
+Parcel is a cloud-native, event-driven file processing platform, built as a
+hands-on learning project for AWS architecture. A client requests a presigned
+URL, uploads straight to S3, and a queued job wakes a Go worker that inspects
+the file and writes results back. It is the same shape a real pipeline takes,
+small enough to hold in your head.
+
+The whole system runs on a local AWS emulator, so there is no cloud account and
+no bill. The goal is understanding how cloud services fit together into a
+distributed, asynchronous system, not shipping a production file host.
+
+## Architecture
+
+```text
+Client -> API Gateway -> Python Lambda --> DynamoDB (metadata)
+                              |
+                              +---------> S3 (presigned upload)
+                                            |
+                                            v
+                                           SQS
+                                            |
+                                            v
+                                       Go Worker --> S3 + DynamoDB
+```
+
+A file moves through `PENDING -> UPLOADED -> QUEUED -> PROCESSING -> COMPLETED`,
+with `FAILED` reachable from `PROCESSING`. State lives in DynamoDB.
+
+## Why two languages
+
+Each language has a deliberate role, and they communicate only through AWS
+service contracts, never by calling each other directly.
+
+- **Python** handles lightweight, I/O-bound orchestration: HTTP handlers,
+  presigned URL generation, metadata CRUD, publishing SQS jobs.
+- **Go** handles the processing worker: streaming S3 objects, SHA-256 hashing,
+  MIME detection, and other CPU- or I/O-intensive work.
+
+## Stack
+
+| Component | Technology |
+|---|---|
+| Local AWS | Floci 1.7.0 (port 4566) |
+| Infrastructure | Terraform 1.15+ |
+| API | Python 3.12, boto3 |
+| Worker | Go 1.27, aws-sdk-go-v2 |
+| Services | API Gateway, Lambda, S3, DynamoDB, SQS, IAM |
+
+## Repository layout
+
+```text
+api/                  Python API Lambda
+  config.py           AWS client construction
+  log.py              structured JSON logging
+  tests/
+worker/               Go processing worker
+  cmd/worker/         entrypoint
+  internal/awsconfig/ AWS config loading
+terraform/            infrastructure as code
+docker-compose.yml    Floci
+```
+
+Directories for handlers, services, processors, and queues are added by the
+phase that introduces them. See `PLAN.md`.
+
+## Prerequisites
+
+Docker, Go 1.24+, Python 3.12+, Terraform 1.10+, AWS CLI v2, and the
+[Floci CLI](https://github.com/floci-io/floci-cli).
+
+## Running locally
+
+Start the emulator:
+
+```bash
+docker compose up -d
+floci wait
+floci doctor
+```
+
+Point your shell at it:
+
+```bash
+cp .env.example .env
+export $(grep -v '^#' .env | xargs)
+```
+
+Provision infrastructure:
+
+```bash
+cd terraform
+terraform init
+terraform apply
+```
+
+## Testing
+
+Python:
+
+```bash
+cd api
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+```
+
+Go:
+
+```bash
+cd worker
+go vet ./...
+go test ./...
+```
+
+## Configuration
+
+All AWS endpoint configuration flows through one variable, `AWS_ENDPOINT_URL`,
+read in exactly three places: `api/config.py`, `worker/internal/awsconfig`, and
+`terraform/variables.tf`. Unset it and every component targets real AWS instead
+of Floci. No resource definition or handler mentions the emulator.
+
+## Floci notes
+
+Behaviour worth knowing before it looks like a bug:
+
+- The state volume must mount at `/app/data`. Floci's entrypoint drops from root
+  to an unprivileged user and only chowns that path; a volume mounted elsewhere
+  makes the server fail at boot with `AccessDeniedException`.
+- SQS is slow. Creating a queue takes roughly 28s and deleting one roughly 43s,
+  against ~3s for S3. Terraform applies touching SQS are not hanging.
+- Storage defaults to in-memory. `docker-compose.yml` sets `hybrid` so buckets,
+  tables, and queues survive a restart.
+- `apiKeyRequired` is not enforced, so API Gateway API keys are not a real gate.
+
+## Status
+
+Phases 0 and 1 are complete: the environment is reproducible, and both projects
+build with centralized configuration and structured logging. `PLAN.md` tracks
+the remaining phases, starting with Terraform infrastructure.
