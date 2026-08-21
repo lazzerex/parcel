@@ -1,0 +1,3 @@
+# Copy to local.auto.tfvars for local development against Floci.
+# Terraform loads *.auto.tfvars automatically; the real file is gitignored.
+local_emulator = true
