@@ -99,11 +99,17 @@ worker/               Go processing worker
   cmd/worker/         entrypoint
   internal/awsconfig/ AWS config loading
 terraform/            infrastructure as code
+  s3.tf               file bucket
+  dynamodb.tf         metadata table
+  sqs.tf              job queue and dead-letter queue
+  iam.tf              per-role scoped policies
+scripts/
+  verify-infra.sh     asserts live infrastructure matches the config
 docker-compose.yml    Floci
 ```
 
-Directories for handlers, services, processors, and queues are added by the
-phase that introduces them. See `PLAN.md`.
+Directories for handlers, services, processors, and queues appear as the work
+that needs them lands, rather than being scaffolded empty up front.
 
 ## Prerequisites
 
@@ -160,6 +166,18 @@ go vet ./...
 go test ./...
 ```
 
+Infrastructure, after `terraform apply`:
+
+```bash
+./scripts/verify-infra.sh
+```
+
+It reads resource names from Terraform outputs and asserts them against live
+Floci: the bucket blocks public access, the table has one hash key and no
+secondary indexes, the queue redrives to the dead-letter queue after three
+receives, neither IAM policy grants `Resource: "*"`, and an object round-trips
+through `uploads/`.
+
 ## Configuration
 
 Region, credentials, and endpoint come from the standard AWS environment chain
@@ -191,6 +209,19 @@ Behaviour worth knowing before it looks like a bug:
 
 ## Status
 
-Phases 0 and 1 are complete: the environment is reproducible, and both projects
-build with centralized configuration and structured logging. `PLAN.md` tracks
-the remaining phases, starting with Terraform infrastructure.
+Parcel is a work in progress, built in order rather than all at once.
+
+**Working.** The local environment is reproducible from a clean clone. Both
+projects build, test, and reach Floci through a single centralized point of AWS
+configuration. Terraform provisions the data plane end to end: the S3 bucket
+with public access blocked, the DynamoDB metadata table, the job queue and its
+dead-letter queue, and a separate least-privilege IAM role for the API and for
+the worker. `scripts/verify-infra.sh` asserts all of it against a live Floci,
+and the stack survives both a container restart and a full destroy and rebuild.
+
+**Not built yet.** The Lambda functions and the API Gateway in the diagram
+above. No handler code exists to deploy into them, so provisioning them now
+would only mean stub functions rewritten twice. They land alongside the code
+they run: the Python API first, then the Go processing worker, then the
+reliability work around retries, duplicate deliveries, and the dead-letter
+queue.
