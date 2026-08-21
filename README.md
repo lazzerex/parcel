@@ -131,9 +131,15 @@ Provision infrastructure:
 
 ```bash
 cd terraform
+cp local.auto.tfvars.example local.auto.tfvars
 terraform init
 terraform apply
 ```
+
+`local.auto.tfvars` is gitignored. It sets `local_emulator = true`, which relaxes
+the provider checks a local emulator cannot satisfy. Committed defaults stay
+safe for real AWS, so that file is required for local work and must never be
+committed.
 
 ## Testing
 
@@ -156,10 +162,19 @@ go test ./...
 
 ## Configuration
 
-All AWS endpoint configuration flows through one variable, `AWS_ENDPOINT_URL`,
-read in exactly three places: `api/config.py`, `worker/internal/awsconfig`, and
-`terraform/variables.tf`. Unset it and every component targets real AWS instead
-of Floci. No resource definition or handler mentions the emulator.
+Region, credentials, and endpoint come from the standard AWS environment chain
+(`AWS_ENDPOINT_URL`, `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`). Nothing is hardcoded and no credential is committed.
+
+`AWS_ENDPOINT_URL` is the single switch: set it and everything targets the local
+emulator, unset it and every component resolves real AWS the normal way. The
+application code reads it in exactly two places, `api/config.py` and
+`worker/internal/awsconfig`, and passes `None` when it is absent so each SDK
+falls back to its own resolution. Terraform does not read it at all; the AWS
+provider honours the variable natively.
+
+There are deliberately no default values for region or credentials. A missing
+one surfaces as an error rather than silently resolving somewhere unintended.
 
 ## Floci notes
 
