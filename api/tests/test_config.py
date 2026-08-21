@@ -1,13 +1,13 @@
 import config
 
 
-def test_defaults_to_us_east_1(monkeypatch):
+def test_no_hardcoded_defaults(monkeypatch):
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
 
     current = config.settings()
 
-    assert current.region == "us-east-1"
+    assert current.region is None
     assert current.endpoint_url is None
 
 
@@ -25,6 +25,12 @@ def test_empty_endpoint_is_treated_as_unset(monkeypatch):
     monkeypatch.setenv("AWS_ENDPOINT_URL", "")
 
     assert config.settings().endpoint_url is None
+
+
+def test_empty_region_is_treated_as_unset(monkeypatch):
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "")
+
+    assert config.settings().region is None
 
 
 def test_client_targets_configured_endpoint(monkeypatch):
