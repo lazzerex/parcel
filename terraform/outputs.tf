@@ -25,3 +25,15 @@ output "api_role_arn" {
 output "worker_role_arn" {
   value = aws_iam_role.worker.arn
 }
+
+output "api_function_name" {
+  value = aws_lambda_function.api.function_name
+}
+
+output "worker_function_name" {
+  value = aws_lambda_function.worker.function_name
+}
+
+output "api_endpoint" {
+  value = aws_apigatewayv2_stage.default.invoke_url
+}
