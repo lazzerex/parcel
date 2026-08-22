@@ -4,11 +4,25 @@ import config
 def test_no_hardcoded_defaults(monkeypatch):
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
+    monkeypatch.delenv("DYNAMODB_TABLE", raising=False)
+    monkeypatch.delenv("S3_BUCKET", raising=False)
 
     current = config.settings()
 
     assert current.region is None
     assert current.endpoint_url is None
+    assert current.dynamodb_table is None
+    assert current.s3_bucket is None
+
+
+def test_reads_resource_names_from_environment(monkeypatch):
+    monkeypatch.setenv("DYNAMODB_TABLE", "parcel-metadata")
+    monkeypatch.setenv("S3_BUCKET", "parcel-files")
+
+    current = config.settings()
+
+    assert current.dynamodb_table == "parcel-metadata"
+    assert current.s3_bucket == "parcel-files"
 
 
 def test_reads_endpoint_from_environment(monkeypatch):
