@@ -8,12 +8,16 @@ import boto3
 class Settings:
     region: str | None
     endpoint_url: str | None
+    dynamodb_table: str | None
+    s3_bucket: str | None
 
 
 def settings() -> Settings:
     return Settings(
         region=os.getenv("AWS_DEFAULT_REGION") or None,
         endpoint_url=os.getenv("AWS_ENDPOINT_URL") or None,
+        dynamodb_table=os.getenv("DYNAMODB_TABLE") or None,
+        s3_bucket=os.getenv("S3_BUCKET") or None,
     )
 
 
