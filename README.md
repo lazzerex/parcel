@@ -35,6 +35,7 @@
   <a href="#architecture">Architecture</a> ·
   <a href="#why-two-languages">Why two languages</a> ·
   <a href="#running-locally">Running locally</a> ·
+  <a href="#example-workflow">Example workflow</a> ·
   <a href="#testing">Testing</a> ·
   <a href="#floci-notes">Floci notes</a>
 </p>
@@ -92,24 +93,33 @@ service contracts, never by calling each other directly.
 
 ```text
 api/                  Python API Lambda
+  handler.py          API Gateway routing
+  files.py            upload-url / list / get / delete
+  metadata.py         DynamoDB CRUD
+  storage.py          presigned URLs
+  jobs.py             SQS job publisher
+  ids.py              file ID and S3 key generation
+  models.py           FileMetadata
   config.py           AWS client construction
   log.py              structured JSON logging
   tests/
 worker/               Go processing worker
-  cmd/worker/         entrypoint
+  cmd/worker/         entrypoint: decode, dispatch, idempotency, status writes
   internal/awsconfig/ AWS config loading
+  internal/models/    Job decoding
+  internal/processors/ Processor interface, inspect (SHA-256, size, MIME sniff)
+  internal/store/     DynamoDB status/result writes
 terraform/            infrastructure as code
   s3.tf               file bucket
   dynamodb.tf         metadata table
   sqs.tf              job queue and dead-letter queue
+  lambda.tf           API and worker Lambdas, worker's SQS event source
+  api_gateway.tf      HTTP API routes
   iam.tf              per-role scoped policies
 scripts/
   verify-infra.sh     asserts live infrastructure matches the config
 docker-compose.yml    Floci
 ```
-
-Directories for handlers, services, processors, and queues appear as the work
-that needs them lands, rather than being scaffolded empty up front.
 
 ## Prerequisites
 
@@ -146,6 +156,52 @@ terraform apply
 the provider checks a local emulator cannot satisfy. Committed defaults stay
 safe for real AWS, so that file is required for local work and must never be
 committed.
+
+## Example workflow
+
+`aws_apigatewayv2_stage.default.invoke_url` resolves to a real-looking
+`*.execute-api.us-east-1.amazonaws.com` hostname that Floci cannot serve — it
+DNS-resolves publicly and refuses the connection. Locally, invoke the Lambda
+directly instead:
+
+```bash
+echo '{"requestContext":{"http":{"method":"POST"}},"rawPath":"/files/upload-url","body":"{\"filename\":\"photo.jpg\",\"content_type\":\"image/jpeg\"}"}' \
+  > event.json
+
+aws lambda invoke --function-name parcel-api \
+  --payload file://event.json --cli-binary-format raw-in-base64-out out.json
+cat out.json
+```
+
+```json
+{"file_id": "854347d8...", "s3_key": "uploads/854347d8.../photo.jpg", "upload_url": "http://localhost.floci.io:4566/parcel-files/..."}
+```
+
+The client then `PUT`s the file straight to `upload_url`. `create_upload`
+already published the processing job and moved status to `QUEUED`:
+
+```json
+{"job_id": "45081af8...", "file_id": "854347d8...", "bucket": "parcel-files", "key": "uploads/854347d8.../photo.jpg", "operation": "inspect"}
+```
+
+The worker Lambda's SQS event source mapping picks it up automatically. Once
+it runs, `GET /files/{id}` (invoked the same way, with `pathParameters`)
+returns the completed record:
+
+```json
+{
+  "id": "854347d8...",
+  "filename": "photo.jpg",
+  "status": "COMPLETED",
+  "size": 4821931,
+  "content_type": "image/jpeg",
+  "sha256": "e666e3c8...",
+  "processed_at": "2026-08-24T09:51:37.139287893Z"
+}
+```
+
+If the job is redelivered (SQS retry, at-least-once delivery), the worker
+reads the current status first and skips reprocessing once it is `COMPLETED`.
 
 ## Testing
 
@@ -206,22 +262,27 @@ Behaviour worth knowing before it looks like a bug:
 - Storage defaults to in-memory. `docker-compose.yml` sets `hybrid` so buckets,
   tables, and queues survive a restart.
 - `apiKeyRequired` is not enforced, so API Gateway API keys are not a real gate.
+- The HTTP API's `invoke_url` output is not reachable from curl locally (see
+  [Example workflow](#example-workflow)); invoke the Lambda functions directly
+  instead.
 
 ## Status
 
 Parcel is a work in progress, built in order rather than all at once.
 
-**Working.** The local environment is reproducible from a clean clone. Both
-projects build, test, and reach Floci through a single centralized point of AWS
-configuration. Terraform provisions the data plane end to end: the S3 bucket
-with public access blocked, the DynamoDB metadata table, the job queue and its
-dead-letter queue, and a separate least-privilege IAM role for the API and for
-the worker. `scripts/verify-infra.sh` asserts all of it against a live Floci,
-and the stack survives both a container restart and a full destroy and rebuild.
+**Working.** The full workflow in the architecture diagram runs end to end
+against a live Floci: `POST /files/upload-url` creates a `PENDING` metadata
+record, returns a presigned S3 URL, publishes the processing job to SQS, and
+moves status to `QUEUED`. The worker Lambda's SQS event source mapping picks
+the job up automatically, checks current status for idempotency, streams the
+S3 object, computes SHA-256 and size in one pass, sniffs content type, and
+writes `COMPLETED` (or `FAILED` on error) back to DynamoDB. `GET`/`DELETE
+/files/{id}` and `GET /files` round out the API. Infrastructure — S3, DynamoDB,
+the job queue and its dead-letter queue, both Lambdas with least-privilege
+per-role IAM, and the API Gateway HTTP API — is fully provisioned by Terraform
+and asserted against live Floci by `scripts/verify-infra.sh`. The stack
+survives a container restart and a full destroy/rebuild.
 
-**Not built yet.** The Lambda functions and the API Gateway in the diagram
-above. No handler code exists to deploy into them, so provisioning them now
-would only mean stub functions rewritten twice. They land alongside the code
-they run: the Python API first, then the Go processing worker, then the
-reliability work around retries, duplicate deliveries, and the dead-letter
-queue.
+**Not built yet.** Broader reliability hardening (systematic failure-mode
+testing, tuned retry behavior beyond the default SQS redrive) and additional
+Go processors beyond `inspect`.
