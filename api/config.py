@@ -10,6 +10,7 @@ class Settings:
     endpoint_url: str | None
     dynamodb_table: str | None
     s3_bucket: str | None
+    sqs_queue_url: str | None
 
 
 def settings() -> Settings:
@@ -18,6 +19,7 @@ def settings() -> Settings:
         endpoint_url=os.getenv("AWS_ENDPOINT_URL") or None,
         dynamodb_table=os.getenv("DYNAMODB_TABLE") or None,
         s3_bucket=os.getenv("S3_BUCKET") or None,
+        sqs_queue_url=os.getenv("SQS_QUEUE_URL") or None,
     )
 
 
