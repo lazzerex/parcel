@@ -11,15 +11,23 @@ def _configure_env(monkeypatch):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
     monkeypatch.setenv("DYNAMODB_TABLE", "parcel-metadata")
     monkeypatch.setenv("S3_BUCKET", "parcel-files")
+    monkeypatch.setenv("SQS_QUEUE_URL", "http://localhost:4566/000000000000/parcel-jobs")
+
+
+def _configure_clients(monkeypatch):
+    dynamodb_client = config.client("dynamodb")
+    s3_client = config.client("s3")
+    sqs_client = config.client("sqs")
+    clients = {"dynamodb": dynamodb_client, "s3": s3_client, "sqs": sqs_client}
+    monkeypatch.setattr(config, "client", lambda service: clients[service])
+    return clients
 
 
 def test_create_upload_stores_pending_record_and_returns_url(monkeypatch):
     _configure_env(monkeypatch)
-    dynamodb_client = config.client("dynamodb")
-    s3_client = config.client("s3")
-    monkeypatch.setattr(config, "client", lambda service: dynamodb_client if service == "dynamodb" else s3_client)
+    clients = _configure_clients(monkeypatch)
 
-    dynamodb_stub = Stubber(dynamodb_client)
+    dynamodb_stub = Stubber(clients["dynamodb"])
     dynamodb_stub.add_response(
         "put_item",
         {},
@@ -29,11 +37,30 @@ def test_create_upload_stores_pending_record_and_returns_url(monkeypatch):
             "ConditionExpression": "attribute_not_exists(PK)",
         },
     )
+    sqs_stub = Stubber(clients["sqs"])
+    sqs_stub.add_response(
+        "send_message",
+        {},
+        {"QueueUrl": "http://localhost:4566/000000000000/parcel-jobs", "MessageBody": ANY},
+    )
+    dynamodb_stub.add_response(
+        "update_item",
+        {},
+        {
+            "TableName": "parcel-metadata",
+            "Key": ANY,
+            "UpdateExpression": "SET #status = :status, updated_at = :updated_at",
+            "ExpressionAttributeNames": {"#status": "status"},
+            "ExpressionAttributeValues": {":status": {"S": "QUEUED"}, ":updated_at": {"S": ANY}},
+            "ConditionExpression": "attribute_exists(PK)",
+        },
+    )
 
-    with dynamodb_stub:
+    with dynamodb_stub, sqs_stub:
         result = files.create_upload("photo.jpg", "image/jpeg")
 
     dynamodb_stub.assert_no_pending_responses()
+    sqs_stub.assert_no_pending_responses()
     assert result["s3_key"].startswith("uploads/")
     assert result["s3_key"].endswith("/photo.jpg")
     assert result["upload_url"].startswith("http://localhost:4566/parcel-files/")
