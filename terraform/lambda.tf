@@ -26,6 +26,7 @@ resource "aws_lambda_function" "api" {
     variables = {
       DYNAMODB_TABLE = aws_dynamodb_table.metadata.name
       S3_BUCKET      = aws_s3_bucket.files.bucket
+      SQS_QUEUE_URL  = aws_sqs_queue.jobs.url
     }
   }
 }
@@ -63,10 +64,10 @@ resource "aws_lambda_function" "worker" {
   filename         = data.archive_file.worker.output_path
   source_code_hash = data.archive_file.worker.output_base64sha256
 
-  # Floci always reports an environment block on read, even when unset;
-  # declaring it empty keeps `terraform plan` from showing perpetual drift.
   environment {
-    variables = {}
+    variables = {
+      DYNAMODB_TABLE = aws_dynamodb_table.metadata.name
+    }
   }
 }
 
