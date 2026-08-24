@@ -7,15 +7,74 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"parcel/worker/internal/awsconfig"
+	"parcel/worker/internal/models"
+	"parcel/worker/internal/processors"
+	"parcel/worker/internal/store"
 )
 
-func handleRequest(ctx context.Context, event events.SQSEvent) error {
+type worker struct {
+	s3Client       *s3.Client
+	dynamodbClient *dynamodb.Client
+	table          string
+}
+
+func (w worker) handleRecord(ctx context.Context, record events.SQSMessage) error {
+	job, err := models.DecodeJob(record.Body)
+	if err != nil {
+		slog.Error("invalid job", "message_id", record.MessageId, "error", err)
+		return err
+	}
+
+	log := slog.With("job_id", job.JobID, "file_id", job.FileID)
+
+	processor, err := processors.Dispatch(job.Operation)
+	if err != nil {
+		log.Error("unknown operation", "operation", job.Operation, "error", err)
+		return err
+	}
+
+	status, err := store.GetStatus(ctx, w.dynamodbClient, w.table, job.FileID)
+	if err != nil {
+		log.Error("failed to read status", "error", err)
+		return err
+	}
+	if status == "COMPLETED" {
+		log.Info("already completed, skipping")
+		return nil
+	}
+
+	if err := store.SetStatus(ctx, w.dynamodbClient, w.table, job.FileID, "PROCESSING"); err != nil {
+		log.Error("failed to set processing status", "error", err)
+		return err
+	}
+
+	result, err := processor.Run(ctx, w.s3Client, job)
+	if err != nil {
+		log.Error("processing failed", "error", err)
+		if setErr := store.SetStatus(ctx, w.dynamodbClient, w.table, job.FileID, "FAILED"); setErr != nil {
+			log.Error("failed to set failed status", "error", setErr)
+		}
+		return err
+	}
+
+	if err := store.SetCompleted(ctx, w.dynamodbClient, w.table, job.FileID, result.Size, result.SHA256, result.ContentType); err != nil {
+		log.Error("failed to write result", "error", err)
+		return err
+	}
+
+	log.Info("completed", "size", result.Size, "sha256", result.SHA256, "content_type", result.ContentType)
+	return nil
+}
+
+func (w worker) handleRequest(ctx context.Context, event events.SQSEvent) error {
 	for _, record := range event.Records {
-		// Processing (Phase 6/7) is not implemented yet; this confirms the
-		// SQS -> Lambda wiring and gives visibility while that lands.
-		slog.Info("received job", "message_id", record.MessageId, "body", record.Body)
+		if err := w.handleRecord(ctx, record); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -28,7 +87,19 @@ func main() {
 		slog.Error("failed to load AWS config", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("worker configured", "region", cfg.Region)
 
-	lambda.Start(handleRequest)
+	table := os.Getenv("DYNAMODB_TABLE")
+	if table == "" {
+		slog.Error("DYNAMODB_TABLE is not set")
+		os.Exit(1)
+	}
+
+	w := worker{
+		s3Client:       s3.NewFromConfig(cfg),
+		dynamodbClient: dynamodb.NewFromConfig(cfg),
+		table:          table,
+	}
+
+	slog.Info("worker configured", "region", cfg.Region, "table", table)
+	lambda.Start(w.handleRequest)
 }
