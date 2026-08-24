@@ -2,6 +2,7 @@ import datetime as dt
 
 import config
 import ids
+import jobs
 import metadata
 import storage
 from models import FileMetadata
@@ -27,10 +28,17 @@ def create_upload(filename: str, content_type: str) -> dict:
         processed_at=None,
     )
 
-    metadata.create(config.client("dynamodb"), settings.dynamodb_table, file_metadata)
+    dynamodb_client = config.client("dynamodb")
+    metadata.create(dynamodb_client, settings.dynamodb_table, file_metadata)
     upload_url = storage.presigned_upload_url(
         config.client("s3"), settings.s3_bucket, s3_key, content_type
     )
+
+    job_id = ids.generate_file_id()
+    jobs.publish_job(
+        config.client("sqs"), settings.sqs_queue_url, job_id, file_id, settings.s3_bucket, s3_key, "inspect"
+    )
+    metadata.update_status(dynamodb_client, settings.dynamodb_table, file_id, "QUEUED")
 
     return {"file_id": file_id, "s3_key": s3_key, "upload_url": upload_url}
 
