@@ -17,8 +17,8 @@ import (
 )
 
 type worker struct {
-	s3Client       *s3.Client
-	dynamodbClient *dynamodb.Client
+	s3Client       processors.S3GetObjectAPI
+	dynamodbClient store.DynamoDBAPI
 	table          string
 }
 
