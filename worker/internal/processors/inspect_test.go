@@ -8,8 +8,10 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"parcel/worker/internal/models"
 )
@@ -84,6 +86,94 @@ func TestInspectProcessorPropagatesS3Error(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Run() error = nil, want error")
+	}
+}
+
+type sequencedS3 struct {
+	responses [][]byte
+	errs      []error
+	calls     int
+}
+
+func (f *sequencedS3) GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	i := f.calls
+	f.calls++
+	if f.errs[i] != nil {
+		return nil, f.errs[i]
+	}
+	return &s3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(f.responses[i]))}, nil
+}
+
+func TestInspectProcessorRetriesOnNoSuchKeyThenSucceeds(t *testing.T) {
+	content := []byte("parcel test content")
+	sum := sha256.Sum256(content)
+	fake := &sequencedS3{
+		errs:      []error{&types.NoSuchKey{}, nil},
+		responses: [][]byte{nil, content},
+	}
+
+	result, err := InspectProcessor{}.Run(context.Background(), fake, models.Job{
+		Bucket: "parcel-files", Key: "uploads/f/x.bin", Operation: "inspect",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if fake.calls != 2 {
+		t.Errorf("GetObject called %d times, want 2", fake.calls)
+	}
+	if result.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Errorf("SHA256 = %s, want %s", result.SHA256, hex.EncodeToString(sum[:]))
+	}
+}
+
+func TestInspectProcessorGivesUpAfterExhaustingRetries(t *testing.T) {
+	fake := &sequencedS3{
+		errs:      []error{&types.NoSuchKey{}, &types.NoSuchKey{}, &types.NoSuchKey{}, &types.NoSuchKey{}},
+		responses: [][]byte{nil, nil, nil, nil},
+	}
+
+	_, err := InspectProcessor{}.Run(context.Background(), fake, models.Job{
+		Bucket: "parcel-files", Key: "uploads/f/x.bin", Operation: "inspect",
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want error")
+	}
+	if fake.calls != len(objectNotFoundRetryDelays)+1 {
+		t.Errorf("GetObject called %d times, want %d", fake.calls, len(objectNotFoundRetryDelays)+1)
+	}
+}
+
+func TestInspectProcessorDoesNotRetryOtherErrors(t *testing.T) {
+	fake := &sequencedS3{
+		errs:      []error{errors.New("access denied")},
+		responses: [][]byte{nil},
+	}
+
+	_, err := InspectProcessor{}.Run(context.Background(), fake, models.Job{
+		Bucket: "parcel-files", Key: "uploads/f/x.bin", Operation: "inspect",
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want error")
+	}
+	if fake.calls != 1 {
+		t.Errorf("GetObject called %d times, want 1 (non-NoSuchKey errors must not retry)", fake.calls)
+	}
+}
+
+func TestGetObjectWithRetryRespectsContextCancellation(t *testing.T) {
+	fake := &sequencedS3{
+		errs:      []error{&types.NoSuchKey{}, &types.NoSuchKey{}},
+		responses: [][]byte{nil, nil},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := getObjectWithRetry(ctx, fake, models.Job{Bucket: "parcel-files", Key: "uploads/f/x.bin"})
+	if err == nil {
+		t.Fatal("getObjectWithRetry() error = nil, want context deadline error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want context.DeadlineExceeded", err)
 	}
 }
 
