@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+      dry_run:
+        description: "Dry run (skip publishing)"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Calculate version
+        id: version
+        run: |
+          CURRENT=$(./scripts/version.sh latest)
+          NEXT=$(./scripts/version.sh next ${{ inputs.release_type }})
+          EXISTS=$(./scripts/version.sh exists "$NEXT")
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "exists=$EXISTS" >> "$GITHUB_OUTPUT"
+          echo "### Version" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Current: $CURRENT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Next: $NEXT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag exists: $EXISTS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check tag does not exist
+        if: steps.version.outputs.exists == 'yes'
+        run: |
+          echo "error: tag ${{ steps.version.outputs.next }} already exists" >&2
+          exit 1
+
+      - name: Python tests
+        run: |
+          cd api
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements-dev.txt
+          .venv/bin/python -m pytest -q
+
+      - name: Go vet
+        run: cd worker && go vet ./...
+
+      - name: Go tests
+        run: cd worker && go test ./... -count=1 -short
+
+      - name: Go build
+        run: cd worker && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/worker
+
+      - name: Terraform fmt
+        run: terraform -chdir=terraform fmt -check
+
+      - name: Dry run summary
+        if: inputs.dry_run == true
+        run: |
+          echo "### Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release type: ${{ inputs.release_type }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Current: ${{ steps.version.outputs.current }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Next: ${{ steps.version.outputs.next }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- All checks passed. No changes made." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update VERSION
+        if: inputs.dry_run == false
+        run: echo "${{ steps.version.outputs.next }}" | sed 's/^v//' > VERSION
+
+      - name: Update CHANGELOG
+        if: inputs.dry_run == false
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          DATE=$(date +%Y-%m-%d)
+          sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$NEXT] - $DATE/" CHANGELOG.md
+          sed -i "s|^\[Unreleased\]:.*|[Unreleased]: https://github.com/${{ github.repository }}/compare/$NEXT...HEAD\n[$NEXT]: https://github.com/${{ github.repository }}/releases/tag/$NEXT|" CHANGELOG.md
+
+      - name: Commit and tag
+        if: inputs.dry_run == false
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION CHANGELOG.md
+          git commit -m "chore: release $NEXT"
+          git tag "$NEXT"
+
+      - name: Push
+        if: inputs.dry_run == false
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          git push origin master "$NEXT"
+
+      - name: Generate release body
+        if: inputs.dry_run == false
+        id: body
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          CURRENT="${{ steps.version.outputs.current }}"
+          BODY=$(git log "$CURRENT..$NEXT" --pretty=format:"- %s" --no-merges)
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: inputs.dry_run == false
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.next }}
+          name: ${{ steps.version.outputs.next }}
+          body: ${{ steps.body.outputs.body }}
+          generate_release_notes: false
+
+      - name: Release summary
+        if: inputs.dry_run == false
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          echo "### Release Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: $NEXT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: https://github.com/${{ github.repository }}/releases/tag/$NEXT" >> "$GITHUB_STEP_SUMMARY"
