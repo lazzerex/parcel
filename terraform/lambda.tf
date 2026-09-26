@@ -54,11 +54,11 @@ data "archive_file" "worker" {
 }
 
 resource "aws_lambda_function" "worker" {
-  function_name    = "${var.project_name}-worker"
-  role             = aws_iam_role.worker.arn
-  handler          = "bootstrap"
-  runtime          = "provided.al2023"
-  architectures    = ["x86_64"]
+  function_name = "${var.project_name}-worker"
+  role          = aws_iam_role.worker.arn
+  handler       = "bootstrap"
+  runtime       = "provided.al2023"
+  architectures = ["x86_64"]
   # Must stay 1/6 of the queue's visibility timeout, per sqs.tf.
   timeout          = 30
   filename         = data.archive_file.worker.output_path
