@@ -4,15 +4,21 @@ set -euo pipefail
 VERSION_FILE="$(cd "$(dirname "$0")/.." && pwd)/VERSION"
 
 cmd_latest() {
-  local v
-  v="$(cat "$VERSION_FILE" | tr -d '[:space:]')"
-  echo "v${v}"
+  local tag
+  tag="$(git tag -l 'v*' --sort=-version:refname 2>/dev/null | head -1)"
+  if [ -n "$tag" ]; then
+    echo "$tag"
+  else
+    local v
+    v="$(cat "$VERSION_FILE" | tr -d '[:space:]')"
+    echo "v${v}"
+  fi
 }
 
 cmd_next() {
   local type="$1"
   local current
-  current="$(cat "$VERSION_FILE" | tr -d '[:space:]')"
+  current="$(cmd_latest | sed 's/^v//')"
 
   IFS='.' read -r major minor patch <<< "$current"
 
@@ -64,19 +70,33 @@ cmd_self_test() {
 
   local tmpdir
   tmpdir="$(mktemp -d)"
+  (
+    cd "$tmpdir"
+    git init -q
+    git config user.name "test"
+    git config user.email "test@test.com"
+    echo "init" > .gitkeep
+    git add .gitkeep
+    git commit -q -m "init"
 
-  echo "0.2.0" > "$tmpdir/VERSION"
-  VERSION_FILE="$tmpdir/VERSION"
+    echo "0.2.0" > "$tmpdir/VERSION"
+    VERSION_FILE="$tmpdir/VERSION"
 
-  assert_eq "latest reads VERSION" "v0.2.0" "$(cmd_latest)"
-  assert_eq "bump patch" "v0.2.1" "$(cmd_next patch)"
-  assert_eq "bump minor" "v0.3.0" "$(cmd_next minor)"
-  assert_eq "bump major" "v1.0.0" "$(cmd_next major)"
+    assert_eq "latest reads VERSION (no tags)" "v0.2.0" "$(cmd_latest)"
+    assert_eq "bump patch" "v0.2.1" "$(cmd_next patch)"
+    assert_eq "bump minor" "v0.3.0" "$(cmd_next minor)"
+    assert_eq "bump major" "v1.0.0" "$(cmd_next major)"
 
-  echo "1.0.0" > "$tmpdir/VERSION"
-  assert_eq "format v-prefixed" "v1.0.0" "$(cmd_latest)"
+    echo "1.0.0" > "$tmpdir/VERSION"
+    assert_eq "format v-prefixed" "v1.0.0" "$(cmd_latest)"
 
-  assert_eq "tag missing" "no" "$(cmd_exists v99.99.99)"
+    echo "0.5.0" > "$tmpdir/VERSION"
+    git tag v0.5.0
+    assert_eq "latest reads tag over VERSION" "v0.5.0" "$(cmd_latest)"
+    assert_eq "next bumps from tag" "v0.5.1" "$(cmd_next patch)"
+
+    assert_eq "tag missing" "no" "$(cmd_exists v99.99.99)"
+  )
 
   if [ "$failed" -eq 0 ]; then
     echo "all self-tests passed"
