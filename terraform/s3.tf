@@ -13,3 +13,33 @@ resource "aws_s3_bucket_public_access_block" "files" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+resource "aws_s3_bucket_lifecycle_configuration" "files" {
+  bucket = aws_s3_bucket.files.id
+
+  rule {
+    id     = "expire-uploads"
+    status = "Enabled"
+
+    filter {
+      prefix = "uploads/"
+    }
+
+    expiration {
+      days = 30
+    }
+  }
+
+  rule {
+    id     = "expire-processed"
+    status = "Enabled"
+
+    filter {
+      prefix = "processed/"
+    }
+
+    expiration {
+      days = 90
+    }
+  }
+}
