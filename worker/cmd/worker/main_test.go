@@ -97,7 +97,7 @@ func TestHandleRecordUnknownOperationReturnsError(t *testing.T) {
 	ddb := &fakeDynamoDB{}
 	w := worker{s3Client: &fakeS3{}, dynamodbClient: ddb, table: "parcel-metadata"}
 
-	body := `{"job_id":"j1","file_id":"f1","bucket":"parcel-files","key":"uploads/f1/x.bin","operation":"compress"}`
+	body := `{"job_id":"j1","file_id":"f1","bucket":"parcel-files","key":"uploads/f1/x.bin","operation":"nonexistent"}`
 	err := w.handleRecord(context.Background(), events.SQSMessage{Body: body})
 	if err == nil {
 		t.Fatal("handleRecord() error = nil, want error")
