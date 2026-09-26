@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v3.0.0] - 2026-09-26
+
 ## [v2.0.0] - 2026-09-26
 
 ## [1.0.0] - 2026-09-26
@@ -25,6 +27,7 @@ First release. The core workflow is complete and verified.
 - CI workflow: pytest, go vet, go test, go build, terraform fmt
 - Release workflow with semver bumping and GitHub Releases
 
-[Unreleased]: https://github.com/lazzerex/parcel/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/lazzerex/parcel/compare/v3.0.0...HEAD
+[v3.0.0]: https://github.com/lazzerex/parcel/releases/tag/v3.0.0
 [v2.0.0]: https://github.com/lazzerex/parcel/releases/tag/v2.0.0
 [1.0.0]: https://github.com/lazzerex/parcel/releases/tag/v1.0.0
