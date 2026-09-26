@@ -109,7 +109,7 @@ jobs:
         if: inputs.dry_run == false
         run: |
           NEXT="${{ steps.version.outputs.next }}"
-          git push origin master "$NEXT"
+          git push origin main "$NEXT"
 
       - name: Generate release body
         if: inputs.dry_run == false
