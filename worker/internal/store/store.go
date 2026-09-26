@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"time"
 
@@ -58,27 +59,47 @@ func SetStatus(ctx context.Context, client DynamoDBAPI, table, fileID, status st
 }
 
 func SetCompleted(ctx context.Context, client DynamoDBAPI, table, fileID string, size int64, sha256, contentType string) error {
+	expiry := computeExpiry()
+
+	updateExpr := "SET #status = :status, content_type = :content_type, #size = :size, sha256 = :sha256, updated_at = :updated_at, processed_at = :processed_at"
+	exprValues := map[string]types.AttributeValue{
+		":status":       &types.AttributeValueMemberS{Value: "COMPLETED"},
+		":content_type": &types.AttributeValueMemberS{Value: contentType},
+		":size":         &types.AttributeValueMemberN{Value: strconv.FormatInt(size, 10)},
+		":sha256":       &types.AttributeValueMemberS{Value: sha256},
+		":updated_at":   &types.AttributeValueMemberS{Value: now()},
+		":processed_at": &types.AttributeValueMemberS{Value: now()},
+	}
+
+	if expiry > 0 {
+		updateExpr += ", expires_at = :expires_at"
+		exprValues[":expires_at"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(expiry, 10)}
+	}
+
 	_, err := client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName: aws.String(table),
 		Key:       partitionKey(fileID),
-		UpdateExpression: aws.String(
-			"SET #status = :status, content_type = :content_type, #size = :size, sha256 = :sha256, updated_at = :updated_at, processed_at = :processed_at",
-		),
+		UpdateExpression: aws.String(updateExpr),
 		ExpressionAttributeNames: map[string]string{
 			"#status": "status",
 			"#size":   "size",
 		},
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":status":       &types.AttributeValueMemberS{Value: "COMPLETED"},
-			":content_type": &types.AttributeValueMemberS{Value: contentType},
-			":size":         &types.AttributeValueMemberN{Value: strconv.FormatInt(size, 10)},
-			":sha256":       &types.AttributeValueMemberS{Value: sha256},
-			":updated_at":   &types.AttributeValueMemberS{Value: now()},
-			":processed_at": &types.AttributeValueMemberS{Value: now()},
-		},
-		ConditionExpression: aws.String("attribute_exists(PK)"),
+		ExpressionAttributeValues: exprValues,
+		ConditionExpression:       aws.String("attribute_exists(PK)"),
 	})
 	return err
+}
+
+func computeExpiry() int64 {
+	days := os.Getenv("FILE_EXPIRY_DAYS")
+	if days == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(days)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Now().UTC().Add(time.Duration(n) * 24 * time.Hour).Unix()
 }
 
 func now() string {
