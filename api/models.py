@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import datetime as dt
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class FileMetadata:
     created_at: str
     updated_at: str
     processed_at: str | None
+    expires_at: int | None = None
 
     def to_item(self) -> dict:
         item = {
@@ -31,6 +33,8 @@ class FileMetadata:
             item["sha256"] = {"S": self.sha256}
         if self.processed_at is not None:
             item["processed_at"] = {"S": self.processed_at}
+        if self.expires_at is not None:
+            item["expires_at"] = {"N": str(self.expires_at)}
         return item
 
     @staticmethod
@@ -46,4 +50,5 @@ class FileMetadata:
             created_at=item["created_at"]["S"],
             updated_at=item["updated_at"]["S"],
             processed_at=item.get("processed_at", {}).get("S"),
+            expires_at=int(item["expires_at"]["N"]) if "expires_at" in item else None,
         )
