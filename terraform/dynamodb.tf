@@ -7,4 +7,9 @@ resource "aws_dynamodb_table" "metadata" {
     name = "PK"
     type = "S"
   }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
 }
