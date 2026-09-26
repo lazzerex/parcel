@@ -1,4 +1,5 @@
 import datetime as dt
+import time
 
 import config
 import ids
@@ -7,6 +8,8 @@ import metadata
 import storage
 from models import FileMetadata
 
+FILE_EXPIRY_SECONDS = 90 * 24 * 60 * 60
+
 
 def create_upload(filename: str, content_type: str) -> dict:
     settings = config.settings()
@@ -14,7 +17,6 @@ def create_upload(filename: str, content_type: str) -> dict:
     s3_key = ids.build_s3_key(file_id, filename)
     now = dt.datetime.now(dt.timezone.utc).isoformat()
 
-    # size and sha256 are unknown until the Go worker processes the object.
     file_metadata = FileMetadata(
         id=file_id,
         filename=filename,
@@ -26,6 +28,7 @@ def create_upload(filename: str, content_type: str) -> dict:
         created_at=now,
         updated_at=now,
         processed_at=None,
+        expires_at=int(time.time()) + FILE_EXPIRY_SECONDS,
     )
 
     dynamodb_client = config.client("dynamodb")
