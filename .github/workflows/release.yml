@@ -91,9 +91,64 @@ jobs:
         if: inputs.dry_run == false
         run: |
           NEXT="${{ steps.version.outputs.next }}"
+          NEXT_CLEAN="${NEXT#v}"
           DATE=$(date +%Y-%m-%d)
-          sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$NEXT] - $DATE/" CHANGELOG.md
-          sed -i "s|^\[Unreleased\]:.*|[Unreleased]: https://github.com/${{ github.repository }}/compare/$NEXT...HEAD\n[$NEXT]: https://github.com/${{ github.repository }}/releases/tag/$NEXT|" CHANGELOG.md
+          sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$NEXT_CLEAN] - $DATE/" CHANGELOG.md
+          sed -i "s|^\[Unreleased\]:.*|[Unreleased]: https://github.com/${{ github.repository }}/compare/$NEXT...HEAD\n[$NEXT_CLEAN]: https://github.com/${{ github.repository }}/releases/tag/$NEXT|" CHANGELOG.md
+
+      - name: Generate release body
+        if: inputs.dry_run == false
+        id: body
+        run: |
+          NEXT="${{ steps.version.outputs.next }}"
+          CURRENT="${{ steps.version.outputs.current }}"
+
+          FEATURES=""
+          FIXES=""
+          DOCS=""
+          MAINTENANCE=""
+          OTHER=""
+
+          while IFS= read -r line; do
+            sha="${line%% *}"
+            msg="${line#* }"
+            prefix="${msg%%: *}"
+            rest="${msg#*: }"
+            short="${sha:0:7}"
+            link="[$short](https://github.com/${{ github.repository }}/commit/$sha)"
+
+            case "$prefix" in
+              feat)     FEATURES="${FEATURES}- ${rest} (${link})\n" ;;
+              fix)      FIXES="${FIXES}- ${rest} (${link})\n" ;;
+              docs)     DOCS="${DOCS}- ${rest} (${link})\n" ;;
+              chore|ci|style|refactor|test|perf)
+                        MAINTENANCE="${MAINTENANCE}- ${rest} (${link})\n" ;;
+              *)        OTHER="${OTHER}- ${msg} (${link})\n" ;;
+            esac
+          done < <(git log "$CURRENT..$NEXT" --pretty=format:"%h %s" --no-merges 2>/dev/null || git log --pretty=format:"%h %s" --no-merges -20)
+
+          BODY="## What's Changed\n\n"
+          if [ -n "$FEATURES" ]; then
+            BODY="${BODY}### Features\n\n${FEATURES}\n"
+          fi
+          if [ -n "$FIXES" ]; then
+            BODY="${BODY}### Bug Fixes\n\n${FIXES}\n"
+          fi
+          if [ -n "$DOCS" ]; then
+            BODY="${BODY}### Documentation\n\n${DOCS}\n"
+          fi
+          if [ -n "$MAINTENANCE" ]; then
+            BODY="${BODY}### Maintenance\n\n${MAINTENANCE}\n"
+          fi
+          if [ -n "$OTHER" ]; then
+            BODY="${BODY}### Other Changes\n\n${OTHER}\n"
+          fi
+
+          BODY="${BODY}**Full Changelog**: https://github.com/${{ github.repository }}/compare/${CURRENT}...${NEXT}"
+
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          printf "%b" "$BODY" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Commit and tag
         if: inputs.dry_run == false
@@ -110,21 +165,6 @@ jobs:
         run: |
           NEXT="${{ steps.version.outputs.next }}"
           git push origin main "$NEXT"
-
-      - name: Generate release body
-        if: inputs.dry_run == false
-        id: body
-        run: |
-          NEXT="${{ steps.version.outputs.next }}"
-          CURRENT="${{ steps.version.outputs.current }}"
-          if git rev-parse "$CURRENT" >/dev/null 2>&1; then
-            BODY=$(git log "$CURRENT..$NEXT" --pretty=format:"- %s" --no-merges)
-          else
-            BODY=$(git log --pretty=format:"- %s" --no-merges -20)
-          fi
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$BODY" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         if: inputs.dry_run == false
