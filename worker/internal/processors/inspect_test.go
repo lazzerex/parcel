@@ -188,7 +188,7 @@ func TestDispatchReturnsInspectProcessor(t *testing.T) {
 }
 
 func TestDispatchRejectsUnknownOperation(t *testing.T) {
-	if _, err := Dispatch("compress"); err == nil {
+	if _, err := Dispatch("nonexistent"); err == nil {
 		t.Fatal("Dispatch() error = nil, want error")
 	}
 }
