@@ -77,6 +77,16 @@ data "aws_iam_policy_document" "worker" {
     ]
     resources = [aws_sqs_queue.jobs.arn]
   }
+
+  statement {
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.processing.arn]
+  }
+
+  statement {
+    actions   = ["events:PutEvents"]
+    resources = [aws_cloudwatch_event_bus.parcel.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "api" {
