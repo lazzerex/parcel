@@ -83,25 +83,17 @@ jobs:
           echo "- Next: ${{ steps.version.outputs.next }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- All checks passed. No changes made." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Update VERSION
-        if: inputs.dry_run == false
-        run: echo "${{ steps.version.outputs.next }}" | sed 's/^v//' > VERSION
-
-      - name: Update CHANGELOG
-        if: inputs.dry_run == false
-        run: |
-          NEXT="${{ steps.version.outputs.next }}"
-          NEXT_CLEAN="${NEXT#v}"
-          DATE=$(date +%Y-%m-%d)
-          sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$NEXT_CLEAN] - $DATE/" CHANGELOG.md
-          sed -i "s|^\[Unreleased\]:.*|[Unreleased]: https://github.com/${{ github.repository }}/compare/$NEXT...HEAD\n[$NEXT_CLEAN]: https://github.com/${{ github.repository }}/releases/tag/$NEXT|" CHANGELOG.md
-
       - name: Generate release body
         if: inputs.dry_run == false
         id: body
         run: |
           NEXT="${{ steps.version.outputs.next }}"
           CURRENT="${{ steps.version.outputs.current }}"
+
+          cat > release-body.md << 'TEMPLATE'
+          ## What's Changed
+          TEMPLATE
+          echo "" >> release-body.md
 
           FEATURES=""
           FIXES=""
@@ -118,53 +110,50 @@ jobs:
             link="[$short](https://github.com/${{ github.repository }}/commit/$sha)"
 
             case "$prefix" in
-              feat)     FEATURES="${FEATURES}- ${rest} (${link})\n" ;;
-              fix)      FIXES="${FIXES}- ${rest} (${link})\n" ;;
-              docs)     DOCS="${DOCS}- ${rest} (${link})\n" ;;
+              feat)     FEATURES="${FEATURES}- ${rest} (${link})"$'\n' ;;
+              fix)      FIXES="${FIXES}- ${rest} (${link})"$'\n' ;;
+              docs)     DOCS="${DOCS}- ${rest} (${link})"$'\n' ;;
               chore|ci|style|refactor|test|perf)
-                        MAINTENANCE="${MAINTENANCE}- ${rest} (${link})\n" ;;
-              *)        OTHER="${OTHER}- ${msg} (${link})\n" ;;
+                        MAINTENANCE="${MAINTENANCE}- ${rest} (${link})"$'\n' ;;
+              *)        OTHER="${OTHER}- ${msg} (${link})"$'\n' ;;
             esac
-          done < <(git log "$CURRENT..$NEXT" --pretty=format:"%h %s" --no-merges 2>/dev/null || git log --pretty=format:"%h %s" --no-merges -20)
+          done < <(git log "$CURRENT..HEAD" --pretty=format:"%h %s" --no-merges 2>/dev/null || git log --pretty=format:"%h %s" --no-merges -20)
 
-          BODY="## What's Changed\n\n"
           if [ -n "$FEATURES" ]; then
-            BODY="${BODY}### Features\n\n${FEATURES}\n"
+            printf "### Features\n\n%s\n" "$FEATURES" >> release-body.md
           fi
           if [ -n "$FIXES" ]; then
-            BODY="${BODY}### Bug Fixes\n\n${FIXES}\n"
+            printf "### Bug Fixes\n\n%s\n" "$FIXES" >> release-body.md
           fi
           if [ -n "$DOCS" ]; then
-            BODY="${BODY}### Documentation\n\n${DOCS}\n"
+            printf "### Documentation\n\n%s\n" "$DOCS" >> release-body.md
           fi
           if [ -n "$MAINTENANCE" ]; then
-            BODY="${BODY}### Maintenance\n\n${MAINTENANCE}\n"
+            printf "### Maintenance\n\n%s\n" "$MAINTENANCE" >> release-body.md
           fi
           if [ -n "$OTHER" ]; then
-            BODY="${BODY}### Other Changes\n\n${OTHER}\n"
+            printf "### Other Changes\n\n%s\n" "$OTHER" >> release-body.md
           fi
 
-          BODY="${BODY}**Full Changelog**: https://github.com/${{ github.repository }}/compare/${CURRENT}...${NEXT}"
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${CURRENT}...${NEXT}" >> release-body.md
 
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          printf "%b" "$BODY" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "body<<RELEASE_BODY_EOF"
+            cat release-body.md
+            echo "RELEASE_BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Commit and tag
+      - name: Create tag
         if: inputs.dry_run == false
         run: |
           NEXT="${{ steps.version.outputs.next }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION CHANGELOG.md
-          git commit -m "chore: release $NEXT"
           git tag "$NEXT"
 
-      - name: Push
+      - name: Push tag
         if: inputs.dry_run == false
         run: |
           NEXT="${{ steps.version.outputs.next }}"
-          git push origin main "$NEXT"
+          git push origin "$NEXT"
 
       - name: Create GitHub Release
         if: inputs.dry_run == false
