@@ -66,7 +66,10 @@ resource "aws_lambda_function" "worker" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.metadata.name
+      DYNAMODB_TABLE   = aws_dynamodb_table.metadata.name
+      SNS_TOPIC_ARN    = aws_sns_topic.processing.arn
+      EVENTBUS_NAME    = aws_cloudwatch_event_bus.parcel.name
+      FILE_EXPIRY_DAYS = "90"
     }
   }
 }
