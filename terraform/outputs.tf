@@ -37,3 +37,11 @@ output "worker_function_name" {
 output "api_endpoint" {
   value = aws_apigatewayv2_stage.default.invoke_url
 }
+
+output "sns_topic_arn" {
+  value = aws_sns_topic.processing.arn
+}
+
+output "eventbus_name" {
+  value = aws_cloudwatch_event_bus.parcel.name
+}
