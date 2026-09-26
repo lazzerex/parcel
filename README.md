@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version 1.0.0" />
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12" />
   <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white" alt="Go 1.27" />
   <img src="https://img.shields.io/badge/Terraform-1.15-7B42BC?logo=terraform&logoColor=white" alt="Terraform 1.15" />
@@ -37,7 +38,9 @@
   <a href="#running-locally">Running locally</a> ·
   <a href="#example-workflow">Example workflow</a> ·
   <a href="#testing">Testing</a> ·
-  <a href="#floci-notes">Floci notes</a>
+  <a href="#floci-notes">Floci notes</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 ---
@@ -286,3 +289,12 @@ survives a container restart and a full destroy/rebuild.
 **Not built yet.** Broader reliability hardening (systematic failure-mode
 testing, tuned retry behavior beyond the default SQS redrive) and additional
 Go processors beyond `inspect`.
+
+## Release
+
+Parcel follows [SemVer](https://semver.org/). The current version is in the
+[`VERSION`](VERSION) file. See the [CHANGELOG](CHANGELOG.md) for what changed
+in each release.
+
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). For security issues,
+see [SECURITY.md](SECURITY.md).
