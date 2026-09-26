@@ -117,7 +117,11 @@ jobs:
         run: |
           NEXT="${{ steps.version.outputs.next }}"
           CURRENT="${{ steps.version.outputs.current }}"
-          BODY=$(git log "$CURRENT..$NEXT" --pretty=format:"- %s" --no-merges)
+          if git rev-parse "$CURRENT" >/dev/null 2>&1; then
+            BODY=$(git log "$CURRENT..$NEXT" --pretty=format:"- %s" --no-merges)
+          else
+            BODY=$(git log --pretty=format:"- %s" --no-merges -20)
+          fi
           echo "body<<EOF" >> "$GITHUB_OUTPUT"
           echo "$BODY" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
