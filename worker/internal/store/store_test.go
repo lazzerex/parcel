@@ -92,7 +92,6 @@ func TestSetCompletedWritesAllFields(t *testing.T) {
 		t.Errorf("content_type = %q, want image/png", got)
 	}
 
-	// "size" is a DynamoDB reserved keyword and must be aliased.
 	if got := client.updateItemInput.ExpressionAttributeNames["#size"]; got != "size" {
 		t.Errorf("ExpressionAttributeNames[#size] = %q, want %q", got, "size")
 	}
