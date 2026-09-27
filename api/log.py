@@ -26,6 +26,5 @@ def get_logger(name: str) -> logging.Logger:
     handler.setFormatter(JsonFormatter())
     logger.addHandler(handler)
     logger.setLevel(os.getenv("LOG_LEVEL", "INFO"))
-    # Lambda installs its own root handler; propagating would double-log.
     logger.propagate = False
     return logger
