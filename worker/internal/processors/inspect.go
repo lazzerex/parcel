@@ -18,10 +18,6 @@ import (
 
 type InspectProcessor struct{}
 
-// The API Lambda enqueues the job as soon as it hands back the presigned
-// upload URL, before the client has actually PUT the object to S3. A short
-// bounded retry absorbs that race instead of failing the job and waiting out
-// the SQS visibility timeout for redelivery.
 var objectNotFoundRetryDelays = []time.Duration{200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond}
 
 func (InspectProcessor) Run(ctx context.Context, s3Client S3GetObjectAPI, job models.Job) (Result, error) {
