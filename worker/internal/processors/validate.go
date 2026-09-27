@@ -16,13 +16,10 @@ import (
 )
 
 const (
-	maxFileSize  = 10 * 1024 * 1024 // 10 MB
+	maxFileSize  = 10 * 1024 * 1024
 	maxSniffSize = 512
 )
 
-// allowedContentTypes lists MIME prefixes that pass validation.
-// Uses prefix matching because http.DetectContentType may append
-// parameters like "; charset=utf-8".
 var allowedContentTypes = []string{
 	"image/jpeg",
 	"image/png",
