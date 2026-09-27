@@ -24,8 +24,6 @@ def settings() -> Settings:
 
 
 def client(service: str):
-    # Passing None defers to boto3's own resolution, so unsetting the
-    # environment is the whole switch from the emulator to real AWS.
     current = settings()
     return boto3.client(
         service,
